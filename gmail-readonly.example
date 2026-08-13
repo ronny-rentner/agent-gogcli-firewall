@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# SETUP
+
+# 1. Copy/rename this file to gmail-readonly
+# 2. Then change the 2 parameters below to your values
+
+# Your main user account that holds the gogcli oauth credentials
+SSH_TARGET_HOST=myuser@localhost
+
+# Private key file for accessing the main user account
+KEY_FILE_PATH=~/.ssh/gog_readonly
+
+
+# ---------------------------------------------------------------------------------------
+
+
+# Ensure STDIN stays free, so a body can stream through.
+#
+# Arguments are NUL separated and base64 encoded so the other side can unpack without a shell parsing.
+packed_args=$(printf '%s\0' "$@" | base64 -w0)
+
+# Set `-F /dev/null` and `-o IdentitiesOnly=yes` to ignore any local SSH config that could interfere
+exec ssh -F /dev/null -i "$KEY_FILE_PATH" -o IdentitiesOnly=yes -o BatchMode=yes "$SSH_TARGET_HOST" "$packed_args"

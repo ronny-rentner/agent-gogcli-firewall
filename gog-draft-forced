@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# Contract: this wrapper creates Gmail drafts and does nothing else.
+#
+# The hardcoded `gmail drafts create` at the bottom is what enforces that. The file
+# name does not, the baked profile does not (it permits labels, archive and read-state
+# too), and the OAuth token does not (it carries modify scope). Any change that lets
+# the client argv name a command breaks the boundary, silently.
+set -euo pipefail
+
+# Everything the wrapper needs sits beside it: the binaries, gog.env, data/, config/.
+BASE=$(dirname "$(readlink -f "$0")")
+GOG="$BASE/gog-agent-safe-locked"
+
+set -a
+source "$BASE/gog.env"
+set +a
+
+# sshd runs this as the forced command for the draft key; the launcher passes
+# the client argv as base64(NUL-joined) in the ssh command, so no shell parses the
+# untrusted input and stdin stays free for gog (e.g. --body-file -). The command
+# itself is fixed below, so this argv contributes flags to a draft and nothing else.
+if [[ -n "${SSH_ORIGINAL_COMMAND:-}" ]]; then
+  mapfile -d '' -t args < <(base64 -d <<<"$SSH_ORIGINAL_COMMAND")
+  # A call with no arguments still encodes one empty string, so drop it rather than
+  # passing gog an empty argument.
+  if ((${#args[@]} == 1)) && [[ -z ${args[0]} ]]; then args=(); fi
+  set -- "${args[@]}"
+fi
+
+# bwrap read-only-binds the whole filesystem; only data/keyring and two tmpfs
+# mounts (config/gmail-attachments, /tmp) are writable, so a prompt-injected
+# --out cannot escape them. The attachments tmpfs is discarded on exit, so
+# --inline downloads never persist on the host.
+exec bwrap \
+  --ro-bind / / \
+  --bind "$BASE/data/keyring" "$BASE/data/keyring" \
+  --tmpfs "$BASE/config/gmail-attachments" \
+  --tmpfs /tmp \
+  --proc /proc \
+  --dev /dev \
+  --die-with-parent \
+  --new-session \
+  "$GOG" \
+  gmail drafts create \
+  "$@"

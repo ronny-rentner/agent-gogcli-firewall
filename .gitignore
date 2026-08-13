@@ -1,0 +1,16 @@
+# Build inputs and outputs
+/gogcli/
+/gog
+/gog-readonly-locked
+/gog-agent-safe-locked
+/gog-readonly
+/gog-agent-safe
+
+# Recipe scripts generated from the .example templates
+/gmail-readonly
+/gmail-draft
+
+# Deployment state: credentials, keyring, downloads
+/gog.env
+/data/
+/config/

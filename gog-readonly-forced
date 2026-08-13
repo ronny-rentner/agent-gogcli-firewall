@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Contract: this wrapper reads Gmail and does nothing else.
+#
+# Two lines enforce it: the hardcoded `gmail` at the bottom keeps it inside the
+# mailbox, and `readonly` locked in the baked profile keeps it from writing. Neither the
+# file name nor the token restricts it to Gmail: the profile permits drive, calendar and
+# contacts, and only the token's current scopes refuse them, which a later
+# re-authorisation would undo. Any change that lets the client argv name a command
+# breaks the boundary, silently.
+set -euo pipefail
+
+# Everything the wrapper needs sits beside it: the binaries, gog.env, data/, config/.
+BASE=$(dirname "$(readlink -f "$0")")
+GOG="$BASE/gog-readonly-locked"
+
+set -a
+source "$BASE/gog.env"
+set +a
+
+# sshd runs this as the forced command for the readonly key; the launcher passes
+# the client argv as base64(NUL-joined) in the ssh command, so no shell parses the
+# untrusted input and stdin stays free for gog. The gmail command is fixed below, so
+# this argv selects a gmail subcommand and nothing else.
+if [[ -n "${SSH_ORIGINAL_COMMAND:-}" ]]; then
+  mapfile -d '' -t args < <(base64 -d <<<"$SSH_ORIGINAL_COMMAND")
+  # A call with no arguments still encodes one empty string, so drop it rather than
+  # passing gog an empty argument.
+  if ((${#args[@]} == 1)) && [[ -z ${args[0]} ]]; then args=(); fi
+  set -- "${args[@]}"
+fi
+
+# bwrap read-only-binds the whole filesystem; only data/keyring and two tmpfs
+# mounts (config/gmail-attachments, /tmp) are writable, so a prompt-injected
+# --out cannot escape them. The attachments tmpfs is discarded on exit, so
+# --inline downloads never persist on the host.
+exec bwrap \
+  --ro-bind / / \
+  --bind "$BASE/data/keyring" "$BASE/data/keyring" \
+  --tmpfs "$BASE/config/gmail-attachments" \
+  --tmpfs /tmp \
+  --proc /proc \
+  --dev /dev \
+  --die-with-parent \
+  --new-session \
+  "$GOG" \
+  gmail \
+  "$@"
