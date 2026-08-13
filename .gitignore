@@ -14,3 +14,4 @@
 /gog.env
 /data/
 /config/
+client_secret*.json

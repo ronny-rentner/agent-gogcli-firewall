@@ -10,6 +10,9 @@ locked-flags:
   # Keep real URLs in the sanitized output: the agent may only open one the user
   # explicitly authorizes, and the user cannot authorize a link nobody can see.
   sanitize-keep-urls: true
+  # Without this, sanitized get output nests the message beside copies of its
+  # headers and body, so the agent pays for every mail read twice.
+  sanitize-flatten: true
   wrap-untrusted: true
   json: true
   no-input: true

@@ -82,6 +82,129 @@ bake in the allowed commands and the enforced flags that matter when an agent is
 
 See [`safety-profiles/`](safety-profiles/) for more details.
 
+# TODO: REST OF DOCS NOT FINISHED FROM HERE ON
+
+## Install
+
+The firewall requires two parties: the account owner who holds the credentials and the AI agent.
+
+They can be two users on one host, or two hosts, possibly in containers. The steps are the same,
+and the paths below are examples. The owner side needs Go and `bubblewrap`; the agent side needs `jq`.
+
+### Owner side
+
+**1. Build the binaries.** All you need for this is Go. The first time you run `make` it
+clones gogcli next to the Makefile and builds from it; if you already have a checkout, point
+at it with `make GOGCLI=/path/to/gogcli`.
+
+```bash
+cd agent-gogcli-firewall
+make                                    # builds gog, gog-readonly-locked, gog-agent-safe-locked
+```
+
+**2. Write `gog.env`.** Copy the template and fill in your account, a keyring password, and
+where the data and config directories should live. The auth step below reads these values, so
+this file has to exist first:
+
+```bash
+cp gog.env.example gog.env && chmod 600 gog.env
+$EDITOR gog.env
+```
+
+**3. Authorize Gmail once.** This is the single interactive login, run with the plain `gog`
+binary. Create an OAuth client (a Desktop app) in a Google Cloud project that has the Gmail
+API enabled, then source `gog.env` before you start, so the client secret and refresh token are
+written into the keyring you just configured rather than gog's defaults:
+
+```bash
+set -a; source gog.env; set +a
+./gog auth credentials set <client_secret.json>
+./gog auth add you@gmail.com            # opens a browser, stores a refresh token
+```
+
+**4. Lock the owner's home** so the agent account cannot read the keyring or the credentials.
+This is what actually keeps the token out of reach, not any permission on the binaries
+themselves:
+
+```bash
+chmod 700 ~                             # owner home not traversable by the agent user
+```
+
+**5. The owner side is now complete.** Everything the owner needs sits in one directory: the
+wrappers that came with the project, the binaries `make` built beside them, and the `gog.env`
+you wrote. Each wrapper finds its binary, `gog.env` and data right next to itself, so there is
+nothing to copy anywhere else. This is the directory the forced command will point at in step 8.
+
+### Agent side
+
+**6. Generate the keys.** On the agent side, create one key per recipe. Leave them without a
+passphrase, since the calls run unattended:
+
+```bash
+ssh-keygen -t ed25519 -N '' -f ~/.ssh/gog_readonly
+ssh-keygen -t ed25519 -N '' -f ~/.ssh/gog_draft
+```
+
+**7. Pin the owner's host key.** Add it to the agent's `known_hosts` up front, or the first
+non-interactive connection has nothing to trust and simply fails:
+
+```bash
+ssh-keyscan <owner-host> >> ~/.ssh/known_hosts
+```
+
+**8. Authorize each key to one wrapper.** Tie each key to a single wrapper by adding a line to
+the **owner's** `~/.ssh/authorized_keys`. This one line is the whole boundary, so copy it
+exactly: `restrict` first, the right `command=`, and `from=` set to wherever the agent connects
+from.
+
+```
+restrict,from="127.0.0.1,::1",command="/home/owner/agent-gogcli-firewall/gog-readonly-forced" ssh-ed25519 AAAA…readonly
+restrict,from="127.0.0.1,::1",command="/home/owner/agent-gogcli-firewall/gog-draft-forced" ssh-ed25519 AAAA…draft
+```
+
+Across two hosts, set `from=` to the agent's address instead of loopback.
+
+**9. Install the recipe scripts and the skill.** Copy each recipe script without its `.example`
+suffix, set `SSH_TARGET_HOST` and `KEY_FILE_PATH` at the top, and install them alongside the
+skill:
+
+```bash
+cp gmail-readonly.example gmail-readonly && $EDITOR gmail-readonly
+cp gmail-draft.example    gmail-draft    && $EDITOR gmail-draft
+install -m 755 gmail-readonly gmail-draft ~/gmail/
+install -m 644 SKILL.md ~/gmail/
+```
+
+Whenever you change a wrapper, change `SKILL.md` with it. The skill's examples are written for
+the exact command each wrapper hardcodes, so an out-of-date example fails with
+`unexpected argument`.
+
+## Verify
+
+Run the recipe scripts as the **agent** account. Testing by hand-building an ssh command
+checks a simulation of the path, not the path:
+
+```bash
+agent$ ./gmail-readonly messages search is:unread --max 1     # → JSON
+agent$ echo body | ./gmail-draft --dry-run --to a@b.com --subject t --body-file -   # → gmail.drafts.create plan, nothing created
+agent$ ./gmail-readonly drive ls                              # → unexpected argument drive
+```
+
+## Files
+
+| file | side | purpose |
+|---|---|---|
+| `gmail-readonly.example`, `gmail-draft.example` | agent | the recipe scripts the AI runs; copy without the suffix and set two variables |
+| `SKILL.md` | agent | what the AI loads to learn the two commands |
+| `gog-readonly-forced`, `gog-draft-forced` | owner | ssh forced commands; hardcode the gog command, apply bubblewrap |
+| `safety-profiles/*.yaml` | owner | command rules and locked flags baked into each binary |
+| `Makefile` | owner | builds the baked binaries from a gogcli checkout |
+| `gog.env.example` | owner | template for `gog.env` (account, keyring, paths) |
+
+The profiles live here, not in the gogcli checkout: they are this project's policy, and
+upstream ships only unlocked ones, so a plain clone could not build these binaries.
+
+
 ### Adding a new recipe
 
 A new capability is a new recipe. To add one:
@@ -109,116 +232,6 @@ another.
 
 Nothing here is Gmail-specific. A wrapper hardcoding `calendar events` or `drive ls` grants
 those the same way.
-
-## Install
-
-The setup has two accounts: `owner` (holds the credential) and `agent` (runs the AI).
-They can be two users on one host, or two hosts; the steps are the same, and the paths
-below are examples. The owner side needs Go and `bubblewrap`; the agent side needs `jq`.
-
-### Owner side
-
-**1. Build the binaries.** Needs Go. The first `make` clones gogcli beside the Makefile;
-use `make GOGCLI=/path/to/gogcli` to point at an existing checkout.
-
-```bash
-cd agent-gogcli-firewall
-make                                    # builds gog, gog-readonly-locked, gog-agent-safe-locked
-```
-
-**2. Authorize Gmail once**, with the plain `gog` binary. Create an OAuth client (Desktop
-app) in a Google Cloud project with the Gmail API enabled, then:
-
-```bash
-./gog auth credentials set <client_secret.json>
-./gog auth add you@gmail.com            # opens a browser, stores a refresh token
-```
-
-**3. Write `gog.env`.** Copy the template and set the account, a keyring password, and
-the data/config dirs:
-
-```bash
-cp gog.env.example gog.env && chmod 600 gog.env
-$EDITOR gog.env
-```
-
-**4. Lock the owner directory** so the agent account cannot read the keyring or the
-credential. This is what makes the token unreachable, not any file mode on the binaries:
-
-```bash
-chmod 700 ~                             # owner home not traversable by the agent user
-```
-
-**5. The owner directory now holds everything.** The wrappers shipped with the project,
-`make` built the `gog-*-locked` binaries beside them, and step 3 wrote `gog.env` there.
-Each wrapper finds its binary, `gog.env`, and data next to itself, so nothing is installed
-elsewhere. This directory is what the forced command points at in step 8.
-
-### Agent side
-
-**6. Generate one key per capability**, no passphrase (the calls are non-interactive):
-
-```bash
-ssh-keygen -t ed25519 -N '' -f ~/.ssh/gog_readonly
-ssh-keygen -t ed25519 -N '' -f ~/.ssh/gog_draft
-```
-
-**7. Pin the owner's host key** so the first non-interactive call does not fail:
-
-```bash
-ssh-keyscan <owner-host> >> ~/.ssh/known_hosts
-```
-
-**8. Authorize each key to exactly one wrapper.** Append to the **owner's**
-`~/.ssh/authorized_keys`, one line per key. This line is the boundary, so copy it
-exactly (`restrict` first, correct `command=`, `from=` matching where the agent connects
-from):
-
-```
-restrict,from="127.0.0.1,::1",command="/home/owner/agent-gogcli-firewall/gog-readonly-forced" ssh-ed25519 AAAA…readonly
-restrict,from="127.0.0.1,::1",command="/home/owner/agent-gogcli-firewall/gog-draft-forced" ssh-ed25519 AAAA…draft
-```
-
-For two hosts, set `from=` to the agent host's address instead of loopback.
-
-**9. Install the recipe scripts and the skill.** Copy each recipe script without the
-`.example` suffix and set `SSH_TARGET_HOST` and `KEY_FILE_PATH` at the top:
-
-```bash
-cp gmail-readonly.example gmail-readonly && $EDITOR gmail-readonly
-cp gmail-draft.example    gmail-draft    && $EDITOR gmail-draft
-install -m 755 gmail-readonly gmail-draft ~/gmail/
-install -m 644 SKILL.md ~/gmail/
-```
-
-A wrapper change and a `SKILL.md` change ship together: the skill's examples are written
-for the command each wrapper hardcodes, and the previous form fails with
-`unexpected argument`.
-
-## Verify
-
-Run the recipe scripts as the **agent** account. Testing by hand-building an ssh command
-checks a simulation of the path, not the path:
-
-```bash
-agent$ ./gmail-readonly messages search is:unread --max 1     # → JSON
-agent$ echo body | ./gmail-draft --dry-run --to a@b.com --subject t --body-file -   # → gmail.drafts.create plan, nothing created
-agent$ ./gmail-readonly drive ls                              # → unexpected argument drive
-```
-
-## Files
-
-| file | side | purpose |
-|---|---|---|
-| `gmail-readonly.example`, `gmail-draft.example` | agent | the recipe scripts the AI runs; copy without the suffix and set two variables |
-| `SKILL.md` | agent | what the AI loads to learn the two commands |
-| `gog-readonly-forced`, `gog-draft-forced` | owner | ssh forced commands; hardcode the gog command, apply bubblewrap |
-| `safety-profiles/*.yaml` | owner | command rules and locked flags baked into each binary |
-| `Makefile` | owner | builds the baked binaries from a gogcli checkout |
-| `gog.env.example` | owner | template for `gog.env` (account, keyring, paths) |
-
-The profiles live here, not in the gogcli checkout: they are this project's policy, and
-upstream ships only unlocked ones, so a plain clone could not build these binaries.
 
 ## License
 
