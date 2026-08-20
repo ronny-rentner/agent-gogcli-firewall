@@ -59,8 +59,8 @@ Reading does not mark them read.
 ## Resolve a link from a mail
 
 Mail bodies reference URLs as `[link:N]` markers next to the link's text instead of
-showing them. When the user authorizes a specific link, resolve its marker to the full
-URL:
+showing them; the marker's number is the index to resolve. When the user authorizes a
+specific link — say the one marked `[link:3]`:
 
 ```bash
 ./gmail-readonly link MESSAGE_ID 3
