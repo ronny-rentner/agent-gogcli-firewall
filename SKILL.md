@@ -56,6 +56,16 @@ Exit code `4` means the user has to re-authenticate: stop and tell them.
 
 Reading does not mark them read.
 
+## Resolve a link from a mail
+
+Mail bodies reference URLs as `[link:N]` markers next to the link's text instead of
+showing them. When the user authorizes a specific link, resolve its marker to the full
+URL:
+
+```bash
+./gmail-readonly link MESSAGE_ID 3
+```
+
 ## Download an attachment
 
 Downloads are index based, and you decode the bytes yourself:

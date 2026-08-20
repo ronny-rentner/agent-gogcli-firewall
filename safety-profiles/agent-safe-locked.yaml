@@ -7,9 +7,6 @@ description: agent-safe plus locked output flags. Same command rules; sanitized,
 locked-flags:
   gmail-no-send: true
   sanitize-content: true
-  # Keep real URLs in the sanitized output: the agent may only open one the user
-  # explicitly authorizes, and the user cannot authorize a link nobody can see.
-  sanitize-keep-urls: true
   wrap-untrusted: true
   json: true
   no-input: true
@@ -22,6 +19,9 @@ gmail:
   get: true
   messages: true
   attachment: true
+  # Sanitized bodies reference URLs as [link:N] markers; this resolves one to the
+  # full URL the user can authorize.
+  link: true
   url: true
   history: true
   thread:
